@@ -1,0 +1,17 @@
+[theme]
+# Tema chiaro, coerente con il design system dell'app
+base                = "light"
+primaryColor        = "#6366f1"
+backgroundColor     = "#f8f9fc"
+secondaryBackgroundColor = "#ffffff"
+textColor           = "#111827"
+font                = "sans serif"
+
+[server]
+# Porta standard; Streamlit Cloud la gestisce automaticamente
+port                = 8501
+headless            = true
+
+[browser]
+# Disabilita il raccoglitore di statistiche (privacy)
+gatherUsageStats    = false
