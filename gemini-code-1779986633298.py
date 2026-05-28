@@ -16,7 +16,7 @@
 ║    5. Ossiacidi      (es. H₂SO₄, HNO₃, HClO₄, H₃PO₄)                    ║
 ║    6. Sali Binari    (es. NaCl, FeCl₃, CaF₂, Cu₂S)                       ║
 ║                                                                             ║
-║  TECNOLOGIE:  Python 3 · Streamlit · Regex (re) · Pandas                   ║
+║   Python 3                    ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
