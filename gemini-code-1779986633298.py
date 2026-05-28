@@ -225,39 +225,39 @@ def classifica_composto(elementi: Dict[str, int]) -> Tuple[Optional[str], List[s
         return None, log
         
     elif len(elementi) == 2:
-        log.append("🧪 **Composto Binario** rilevato.")
+        log.append("🧪 **Composto Binario** rilevato (esattamente 2 elementi distinti).")
         if 'H' in elementi and 'O' in elementi:
             return "acqua", log
         if 'O' in elementi:
             altro = [el for el in chiavi if el != 'O'][0]
             if DATI_ELEMENTI[altro]['type'] == 'metal':
-                log.append(f"• Contiene Ossigeno + Metallo ({DATI_ELEMENTI[altro]['name_it']}) → **Ossido Basico**.")
+                log.append(f"• Analisi speculativa: Contiene Ossigeno + Metallo ({DATI_ELEMENTI[altro]['name_it'].upper()}) → **Ossido Basico**.")
                 return "ossido_basico", log
             else:
-                log.append(f"• Contiene Ossigeno + Non-Metallo ({DATI_ELEMENTI[altro]['name_it']}) → **Anidride (Ossido Acido)**.")
+                log.append(f"• Analisi speculativa: Contiene Ossigeno + Non-Metallo ({DATI_ELEMENTI[altro]['name_it'].upper()}) → **Anidride (Ossido Acido)**.")
                 return "anidride", log
         if 'H' in elementi:
-            altro = [el for el in chiavi if el != 'H'][0]
-            if DATI_ELEMENTI[altro]['type'] == 'nonmetal' and altro in ['F', 'Cl', 'Br', 'I', 'S', 'Se', 'Te']:
-                log.append(f"• Contiene Idrogeno + Non-metallo specifico → **Idracido**.")
+            outro = [el for el in chiavi if el != 'H'][0]
+            if DATI_ELEMENTI[outro]['type'] == 'nonmetal' and outro in ['F', 'Cl', 'Br', 'I', 'S', 'Se', 'Te']:
+                log.append(f"• Analisi speculativa: Contiene Idrogeno + Non-metallo specifico del gruppo 16/17 → **Idracido**.")
                 return "idracido", log
         el1, el2 = chiavi[0], chiavi[1]
         if (DATI_ELEMENTI[el1]['type'] == 'metal' and DATI_ELEMENTI[el2]['type'] == 'nonmetal') or \
            (DATI_ELEMENTI[el1]['type'] == 'nonmetal' and DATI_ELEMENTI[el2]['type'] == 'metal'):
-            log.append("• Contiene Metallo + Non-metallo → **Sale Binario**.")
+            log.append("• Analisi speculativa: Contiene Metallo + Non-metallo (senza O o H strutturali) → **Sale Binario**.")
             return "sale_binario", log
             
     elif len(elementi) == 3:
-        log.append("🧪 **Composto Ternario** rilevato.")
+        log.append("🧪 **Composto Ternario** rilevato (esattamente 3 elementi distinti).")
         if 'O' in elementi and 'H' in elementi:
             metallo = [el for el in chiavi if el not in ['O', 'H']]
             if metallo and DATI_ELEMENTI[metallo[0]]['type'] == 'metal':
-                log.append(f"• Contiene Metallo ({DATI_ELEMENTI[metallo[0]]['name_it']}) + gruppi OH → **Idrossido**.")
+                log.append(f"• Analisi speculativa: Contiene Metallo ({DATI_ELEMENTI[metallo[0]]['name_it'].upper()}) + Idrogeno + Ossigeno → **Idrossido**.")
                 return "idrossido", log
         if 'H' in elementi and 'O' in elementi:
             nonmetallo = [el for el in chiavi if el not in ['O', 'H']]
             if nonmetallo and DATI_ELEMENTI[nonmetallo[0]]['type'] == 'nonmetal':
-                log.append(f"• Contiene Idrogeno + Non-metallo ({DATI_ELEMENTI[nonmetallo[0]]['name_it']}) + Ossigeno → **Ossiacido**.")
+                log.append(f"• Analisi speculativa: Contiene Idrogeno + Non-metallo ({DATI_ELEMENTI[nonmetallo[0]]['name_it'].upper()}) + Ossigeno → **Ossiacido**.")
                 return "ossiacido", log
 
     log.append("⚠️ Tipologia di composto non supportata (es. idruri metallici o ossisali complessi).")
@@ -265,51 +265,72 @@ def classifica_composto(elementi: Dict[str, int]) -> Tuple[Optional[str], List[s
 
 def calcola_ossidazione(elementi: Dict[str, int], tipo: str, log: List[str]) -> Dict[str, int]:
     ox = {}
+    log.append("🧮 **Risoluzione algebrica del sistema di cariche** (Equazione di neutralità: Σ(atomi × n.ox) = 0):")
+    
     if tipo == "acqua":
+        log.append("• Composto stabile di riferimento: H = +1, O = -2.")
         return {'H': 1, 'O': -2}
+        
     if tipo in ["ossido_basico", "anidride"]:
         ox['O'] = -2
         altro = [el for el in elementi if el != 'O'][0]
         ox[altro] = (elementi['O'] * 2) // elementi[altro]
-        log.append(f"• L'Ossigeno ha n.ox. fisso **-2**. Carica anionica totale: {elementi['O']} × (-2) = {-2*elementi['O']}.")
-        log.append(f"• Per la neutralità molecolare, il {altro} deve compensare con n.ox. totale di +{elementi['O']*2}.")
-        log.append(f"• Stato di ossidazione individuale di **{altro}** = **+{ox[altro]}**.")
+        log.append(f" 1. L'Ossigeno ha stato fisso stabilito a **-2**.")
+        log.append(f" 2. Carica negativa totale apportata dall'ossigeno: {elementi['O']} atomi × (-2) = **{-2*elementi['O']}**.")
+        log.append(f" 3. Equazione: ({elementi[altro]} × X) + ({-2*elementi['O']}) = 0   =>   X = +{ox[altro]}.")
+        log.append(f" 4. Stato di ossidazione individuale di **{altro}** = **+{ox[altro]}**.")
+        
     elif tipo == "idracido":
         ox['H'] = 1
         altro = [el for el in elementi if el != 'H'][0]
         ox[altro] = -elementi['H'] // elementi[altro]
-        log.append(f"• L'Idrogeno ha n.ox. **+1**. Carica totale: +{elementi['H']}.")
-        log.append(f"• Il non-metallo **{altro}** assume n.ox. negativo per bilanciare: **{ox[altro]}**.")
+        log.append(f" 1. L'Idrogeno legato a un non-metallo assume stato fisso a **+1**.")
+        log.append(f" 2. Carica positiva totale apportata dall'idrogeno: {elementi['H']} atomi × (+1) = **+{elementi['H']}**.")
+        log.append(f" 3. Equazione: ({elementi[outro]} × X) + (+{elementi['H']}) = 0   =>   X = {ox[altro]}.")
+        log.append(f" 4. Il non-metallo **{altro}** assume n.ox. negativo stabile = **{ox[altro]}**.")
+        
     elif tipo == "sale_binario":
         metallo = [el for el in elementi if DATI_ELEMENTI[el]['type'] == 'metal'][0]
         nonmetallo = [el for el in elementi if DATI_ELEMENTI[el]['type'] == 'nonmetal'][0]
         ox_nm = [x for x in DATI_ELEMENTI[nonmetallo]['ox_states'] if x < 0][0]
         ox[nonmetallo] = ox_nm
         ox[metallo] = -(elementi[nonmetallo] * ox_nm) // elementi[metallo]
-        log.append(f"• Il non-metallo (**{nonmetallo}**) assume il suo stato negativo stabile: **{ox_nm}**.")
-        log.append(f"• Per azzerare la molecola, il metallo (**{metallo}**) assume n.ox. pari a **+{ox[metallo]}**.")
+        log.append(f" 1. Nei sali binari, il non-metallo (**{nonmetallo}**) prende sempre il suo n.ox. negativo stabile della tavola periodica: **{ox_nm}**.")
+        log.append(f" 2. Carica totale dell'anione: {elementi[nonmetallo]} atomi × ({ox_nm}) = **{elementi[nonmetallo] * ox_nm}**.")
+        log.append(f" 3. Equazione di neutralità: ({elementi[metallo]} × X) + ({elementi[nonmetallo] * ox_nm}) = 0.")
+        log.append(f" 4. Ricavo dello stato del metallo **{metallo}** = **+{ox[metallo]}**.")
+        
     elif tipo == "idrossido":
         ox['O'], ox['H'] = -2, 1
         metallo = [el for el in elementi if el not in ['O', 'H']][0]
         ox[metallo] = (2 * elementi['O'] - elementi['H']) // elementi[metallo]
-        log.append(f"• Il gruppo (OH) ha complessivamente carica **-1**.")
-        log.append(f"• Il metallo **{metallo}** compensa i gruppi anionici con uno stato di **+{ox[metallo]}**.")
+        log.append(f" 1. Il gruppo ossidrilico (OH) ha complessivamente una carica istituzionale pari a **-1**.")
+        log.append(f" 2. Ci sono {elementi['H']} gruppi (OH)⁻ ricavati dal parsing, per un totale anionico di **-{elementi['H']}**.")
+        log.append(f" 3. Equazione: ({elementi[metallo]} × X) + (-{elementi['H']}) = 0.")
+        log.append(f" 4. Stato di ossidazione finale calcolato per il metallo **{metallo}** = **+{ox[metallo]}**.")
+        
     elif tipo == "ossiacido":
         ox['O'], ox['H'] = -2, 1
         nm = [el for el in elementi if el not in ['O', 'H']][0]
         ox[nm] = (2 * elementi['O'] - elementi['H']) // elementi[nm]
-        log.append(f"• Impostati H = +1 e O = -2. Bilancio: ({elementi['H']}×1) + ({elementi['O']}×-2) = {elementi['H'] - 2*elementi['O']}.")
-        log.append(f"• Il non-metallo **{nm}** equilibra la carica residua con uno stato di **+{ox[nm]}**.")
+        log.append(f" 1. Regole standard assegnate: H = +1 e O = -2.")
+        log.append(f" 2. Bilancio parziale delle estremità stabili: ({elementi['H']} × (+1)) + ({elementi['O']} × (-2)) = **{elementi['H'] - 2*elementi['O']}**.")
+        log.append(f" 3. Equazione lineare: ({elementi['H']}×1) + ({elementi[nm]} × X) + ({elementi['O']}×-2) = 0.")
+        log.append(f" 4. Isolando l'incognita X per il non-metallo **{nm}**: X = ({2*elementi['O']} - {elementi['H']}) / {elementi[nm]} = **+{ox[nm]}**.")
+        
     return ox
 
 def valida_ossidazione_risultato(ossidazione: Dict[str, int], elementi: Dict[str, int], tipo: str) -> Tuple[bool, str]:
     for el, val in ossidazione.items():
         if el in DATI_ELEMENTI and val not in DATI_ELEMENTI[el]['ox_states']:
-            return False, f"Lo stato di ossidazione calcolato per {el} ({val}) non corrisponde a valori stabili ammessi."
+            return False, f"Lo stato di ossidazione matematico calcolato per {el} ({val:+} o {val}) non è un numero di ossidazione chimicamente reale o stabile presente in natura."
     return True, ""
 
 def genera_nomenclatura(elementi: Dict[str, int], ox: Dict[str, int], tipo: str, log: List[str]) -> Tuple[str, str]:
+    log.append("🔤 **Applicazione dei criteri di nomenclatura linguistica**:")
+    
     if tipo == "acqua":
+        log.append("• Sostanza isolata: trattata come eccezione chimica universale.")
         return "Ossido di diidrogeno", "Acqua"
         
     if tipo == "ossido_basico":
@@ -317,10 +338,15 @@ def genera_nomenclatura(elementi: Dict[str, int], ox: Dict[str, int], tipo: str,
         pref_o = PREFISSI_GRECI.get(elementi['O'], '')
         pref_m = PREFISSI_GRECI.get(elementi[metallo], '') if elementi[metallo] > 1 else ''
         nome_met = DATI_ELEMENTI[metallo]['name_it']
+        
+        # IUPAC logic
         iupac = f"Monossido di {pref_m}{nome_met}" if pref_o == "mono" else f"{pref_o[:-1] if pref_o.endswith(('a','o')) else pref_o}ossido di {pref_m}{nome_met}"
+        log.append(f"• **IUPAC**: Basata unicamente sulla stechiometria visibile (atomi di O = {elementi['O']} → '{pref_o}', atomi di {metallo} = {elementi[metallo]} → '{pref_m}').")
+        
+        # TRADIZIONALE logic
         adj = DATI_ELEMENTI[metallo]['trad_adj'].get(ox[metallo])
         trad = f"Ossido di {nome_met}" if adj is None else f"Ossido {adj}"
-        log.append(f"• Appplicati prefissi IUPAC stechiometrici e suffissi tradizionali basati su n.ox. +{ox[metallo]}.")
+        log.append(f"• **Tradizionale**: Verifica la valenza del metallo ({ox[metallo]:+}). Esito aggettivo: '{adj if adj else 'Neutro/Fisso'}'.")
         return iupac.capitalize(), trad.capitalize()
 
     if tipo == "anidride":
@@ -328,10 +354,15 @@ def genera_nomenclatura(elementi: Dict[str, int], ox: Dict[str, int], tipo: str,
         pref_o = PREFISSI_GRECI.get(elementi['O'], '')
         pref_nm = PREFISSI_GRECI.get(elementi[nm], '') if elementi[nm] > 1 else ''
         nome_nm = DATI_ELEMENTI[nm]['name_it']
+        
+        # IUPAC
         iupac = f"Monossido di {pref_nm}{nome_nm}" if pref_o == "mono" else f"{pref_o[:-1] if pref_o.endswith(('a','o')) else pref_o}ossido di {pref_nm}{nome_nm}"
+        log.append(f"• **IUPAC**: Applica i moltiplicatori greci stechiometrici agli atomi del non-metallo e dell'ossigeno.")
+        
+        # TRADIZIONALE
         aggettivo = NOMI_ANIDRIDI.get((nm, ox[nm]))
         trad = f"Anidride {aggettivo}" if aggettivo else f"Ossido di {nome_nm} ({NUMERI_ROMANI.get(ox[nm])})"
-        log.append(f"• Nomenclatura basata su prefissi greci (IUPAC) e tavola delle anidridi (Tradizionale).")
+        log.append(f"• **Tradizionale**: Rileva la sottoclasse degli ossidi acidi. Estrae il suffisso storico per ({nm}, n.ox {ox[nm]}) -> 'Anidride {aggettivo if aggettivo else 'non standard'}'.")
         return iupac.capitalize(), trad.capitalize()
 
     if tipo == "idrossido":
@@ -339,25 +370,43 @@ def genera_nomenclatura(elementi: Dict[str, int], ox: Dict[str, int], tipo: str,
         pref_oh = PREFISSI_GRECI.get(elementi['O'], '')
         pref_m = PREFISSI_GRECI.get(elementi[metallo], '') if elementi[metallo] > 1 else ''
         nome_met = DATI_ELEMENTI[metallo]['name_it']
+        
+        # IUPAC
         iupac = f"{pref_oh}idrossido di {pref_m}{nome_met}"
+        log.append(f"• **IUPAC**: Conta quanti gruppi ossidrili sono legati complessivamente ({elementi['O']}) -> '{pref_oh}idrossido'.")
+        
+        # TRADIZIONALE
         adj = DATI_ELEMENTI[metallo]['trad_adj'].get(ox[metallo])
         trad = f"Idrossido di {nome_met}" if adj is None else f"Idrossido {adj}"
+        log.append(f"• **Tradizionale**: Determina il suffisso legante del metallo in base al suo stato (+{ox[metallo]}) -> '{trad}'.")
         return iupac.capitalize(), trad.capitalize()
 
     if tipo == "idracido":
         nm = [el for el in elementi if el != 'H'][0]
         anione = NOMI_ANIONI.get(nm, nm.lower() + "uro")
         pref_h = PREFISSI_GRECI.get(elementi['H'], '') if elementi['H'] > 1 else ''
+        
+        # IUPAC
         iupac = f"{anione} di {pref_h}idrogeno"
+        log.append(f"• **IUPAC**: Sfrutta la radice dell'elemento più elettronegativo trasformandolo in anione ('{anione}') seguito dal numero di idrogeni.")
+        
+        # TRADIZIONALE
         trad = NOMI_IDRACIDI.get(nm, f"Acido {nm.lower()}idrico")
+        log.append(f"• **Tradizionale**: Applica la formula fissa della classe degli idracidi: 'Acido' + radice + desinenza '-idrico'.")
         return iupac.capitalize(), trad.capitalize()
 
     if tipo == "ossiacido":
         nm = [el for el in elementi if el not in ['O', 'H']][0]
         pref_o = PREFISSI_GRECI.get(elementi['O'], '')
         radice = RADICI_IUPAC.get(nm, nm.lower())
+        
+        # IUPAC
         iupac = f"Acido {pref_o}oxxo{radice}ico".replace("oo", "o").replace("oxxo", "osso")
+        log.append(f"• **IUPAC**: Costruzione sistematica standard: parola 'Acido' + numero ossigeni come '{pref_o}osso' + radice del non-metallo chiusa sempre in '-ico'.")
+        
+        # TRADIZIONALE
         trad = NOMI_OSSIACIDI.get((nm, ox[nm]), f"Acido di {radice} (+{ox[nm]})")
+        log.append(f"• **Tradizionale**: Consulta la scala ereditaria dei prefissi/suffissi (ipo-, per-, -oso, -ico) basandosi sul n.ox. calcolato (+{ox[nm]}).")
         return iupac.capitalize(), trad.capitalize()
 
     if tipo == "sale_binario":
@@ -367,9 +416,15 @@ def genera_nomenclatura(elementi: Dict[str, int], ox: Dict[str, int], tipo: str,
         pref_nm = PREFISSI_GRECI.get(elementi[nonmetallo], '')
         pref_m = PREFISSI_GRECI.get(elementi[metallo], '') if elementi[metallo] > 1 else ''
         nome_met = DATI_ELEMENTI[metallo]['name_it']
+        
+        # IUPAC
         iupac = f"{pref_nm}{anione} di {pref_m}{nome_met}"
+        log.append(f"• **IUPAC**: Aggancia il prefisso '{pref_nm}' allo ione negativo '{anione}' e lo mappa sul catione metallico bilanciato.")
+        
+        # TRADIZIONALE
         adj = DATI_ELEMENTI[metallo]['trad_adj'].get(ox[metallo])
         trad = f"{anione} di {nome_met}" if adj is None else f"{anione} {adj}"
+        log.append(f"• **Tradizionale**: Mantiene il nome dell'anione immutato ('{anione}') declinando il metallo in base al suo stato variabile (+{ox[metallo]}).")
         return iupac.capitalize(), trad.capitalize()
 
     return "—", "—"
@@ -385,7 +440,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Definiamo la lista degli esempi
+# Lista di esempi strutturata
 ESEMPI = {
     "— Seleziona una formula rapida per testare... —": "",
     "⬛ Fe₂O₃ — ossido ferrico": "Fe2O3",
@@ -416,18 +471,15 @@ ESEMPI = {
     "⚪ Ca₃N₂ — nitruro di calcio": "Ca3N2",
 }
 
-# Inizializzazione stabile della variabile di stato
 if 'formula_corrente' not in st.session_state:
     st.session_state['formula_corrente'] = ''
 
-# Funzione callback richiamata istantaneamente al cambio della selectbox
 def aggiorna_da_selectbox():
     scelta = st.session_state['esempio_selezionato']
     formula_vera = ESEMPI.get(scelta, '')
     if formula_vera:
         st.session_state['formula_corrente'] = formula_vera
 
-# Menu a tendina degli esempi rapidi
 st.selectbox(
     "🔬 **Seleziona una formula rapida per testare:**",
     options=list(ESEMPI.keys()),
@@ -438,46 +490,45 @@ st.selectbox(
 
 st.markdown("<div style='height:.4rem'></div>", unsafe_allow_html=True)
 
-# Casella di testo legata stabilmente allo stato centralizzato
 formula_utente = st.text_input(
     "📝 **Modifica o inserisci la formula chimica (es. ASCII senza pedici):**",
     key='formula_corrente',
     placeholder="es. Fe2O3, H2SO4, Ca(OH)2...",
 )
 
-# 🏁 BLOCCO DI ESECUZIONE PASSO-PASSO
+# 🏁 BLOCCO DI ESECUZIONE PASSO-PASSO CON TRASPARENZA TOTALE
 if formula_utente:
     st.markdown("### 🗺️ Percorso Trasparente dell'Algoritmo")
     
-    # PASSO 1: VALIDAZIONE
+    # PASSO 1: VALIDAZIONE SINTATTICA
     valida, msg = valida_formula(formula_utente)
     with st.expander("🔹 Fase 1: Validazione Sintattica della Stringa", expanded=True):
-        st.write(f"Formula analizzata: `{formula_utente}`")
+        st.write(f"Formula sotto analisi: `{formula_utente}`")
         if valida:
-            st.success("✅ Formula sintatticamente corretta (caratteri idonei e parentesi bilanciate).")
+            st.success("✅ Formula sintatticamente corretta (caratteri ammessi e controllo dello stack parentesi superato).")
         else:
-            st.error(f"❌ Errore sintattico: {msg}")
+            st.error(f"❌ Errore sintattico rilevato: {msg}")
             st.stop()
             
-    # PASSO 2: PARSING
+    # PASSO 2: PARSING ATOMICO
     elementi = parse_formula(formula_utente)
     with st.expander("🔹 Fase 2: Parsing ed Estrazione Quantitativa degli Atomi", expanded=True):
-        st.write("Scomposizione degli elementi chimici isolati dal parser ricorsivo:")
+        st.write("Isolamento e conteggio matematico degli elementi chimici individuali tramite parser ricorsivo:")
         df_elem = pd.DataFrame([{"Elemento": k, "Atomi Presenti": v} for k, v in elementi.items()])
         st.dataframe(df_elem, use_container_width=True, hide_index=True)
         
-    # PASSO 3: CLASSIFICAZIONE CHIMICA
+    # PASSO 3: CLASSIFICAZIONE LOGICO-CHIMICA
     tipo, log_classe = classifica_composto(elementi)
-    with st.expander("🔹 Fase 3: Classificazione Logico-Chimica", expanded=True):
+    with st.expander("🔹 Fase 3: Classificazione Logico-Chimica (Albero Decisionale)", expanded=True):
         for riga in log_classe:
             st.write(riga)
         if tipo:
-            st.info(f"🎯 Sottoclasse chimica identificata con successo: **{tipo.replace('_', ' ').upper()}**")
+            st.info(f"🎯 Sottoclasse chimica determinata: **{tipo.replace('_', ' ').upper()}**")
         else:
             st.error("❌ Impossibile determinare la classe: composto non supportato o formula chimicamente inesistente.")
             st.stop()
             
-    # PASSO 4: CALCOLO STATI OSSIDAZIONE
+    # PASSO 4: CALCOLO DEL NUMERO DI OSSIDAZIONE
     log_ox = []
     ossidazione = calcola_ossidazione(elementi, tipo, log_ox)
     ox_ok, ox_err = valida_ossidazione_risultato(ossidazione, elementi, tipo)
@@ -485,7 +536,7 @@ if formula_utente:
         for riga in log_ox:
             st.write(riga)
         if ox_ok:
-            df_ox = pd.DataFrame([{"Elemento": k, "Numero di Ossidazione": f"+{v}" if v > 0 else str(v)} for k, v in ossidazione.items()])
+            df_ox = pd.DataFrame([{"Elemento": k, "Numero di Ossidazione Ricavato": f"+{v}" if v > 0 else str(v)} for k, v in ossidazione.items()])
             st.dataframe(df_ox, use_container_width=True, hide_index=True)
         else:
             st.error(f"❌ Errore Chimico: {ox_err}")
@@ -497,7 +548,7 @@ if formula_utente:
     with st.expander("🔹 Fase 5: Elaborazione Linguistica dei Nomi", expanded=True):
         for riga in log_nome:
             st.write(riga)
-        st.success("✅ Nomi ricavati applicando le convenzioni IUPAC 1990 e la nomenclatura storica Tradizionale.")
+        st.success("✅ Nomi ricavati applicando in modo deterministico le convenzioni IUPAC e la nomenclatura storica Tradizionale.")
 
     # 🏆 SEZIONE ASSEGNAZIONE NOMI (CARTELLINI GRAFICI)
     st.markdown("### 🏆 Risultato della Nomenclatura")
@@ -514,7 +565,7 @@ if formula_utente:
     </div>
     """, unsafe_allow_html=True)
     
-    # Curiosità scientifica
+    # Blocco curiosità scientifica coerente
     CURIOSITA = {
         'ossido_basico': ("💡 Lo sapevi?", "Gli ossidi basici si formano per reazione diretta tra metalli e ossigeno. Un esempio comune è la ruggine (Fe₂O₃)."),
         'anidride': ("💡 Lo sapevi?", "Le anidridi sono dette anche ossidi acidi perché reagendo con acqua generano gli ossiacidi. La CO₂ disciolta in acqua piovana crea l'acido carbonico naturale."),
