@@ -7,484 +7,523 @@
 ║    Applicazione web interattiva che implementa un algoritmo PURO basato     ║
 ║    su regole logico-chimiche per assegnare automaticamente i nomi IUPAC     ║
 ║    e Tradizionali ai principali composti inorganici binari e ternari.       ║
-║                                                                             ║
-║   Python 3                    ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-import streamlit as st
-import pandas as pd
 import re
+import pandas as pd
+import streamlit as st
+from typing import Dict, List, Tuple, Optional
 
-# =============================================================================
-# CONFIGURAZIONE PAGINA E DESIGN SYSTEM RETTIFICATO (ANTI-SOVRAPPOSIZIONE)
-# =============================================================================
+# 📊 CONFIGURAZIONE PAGINA STREAMLIT
 st.set_page_config(
     page_title="ChimicaNome — Nomenclatore Automatico",
     page_icon="⚗️",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-# Iniezione CSS Avanzata per prevenire sovrapposizioni e adattare i box su Mobile
+# 🎨 STILE INIETTATO (CSS Personalizzato coerente con il design system)
 st.markdown("""
 <style>
-    .stApp { background-color: #f8f9fc; }
-    
-    /* Forza l'andata a capo automatica di qualsiasi testo per evitare sovrapposizioni */
-    .stMarkdown, p, h1, h2, h3, span, div, .stAlert, .stExpander {
-        word-wrap: break-word !important;
-        overflow-wrap: break-word !important;
-        white-space: normal !important;
-    }
-    
-    .main-title {
-        font-size: 2.5rem;
-        font-weight: 800;
-        color: #1e1b4b;
-        text-align: center;
-        margin-bottom: 5px;
-    }
-    .sub-title {
-        font-size: 1.05rem;
-        color: #4338ca;
-        text-align: center;
-        margin-bottom: 25px;
-        font-weight: 500;
-    }
-    
-    /* Card dei Risultati stabili e leggibili su smartphone */
-    .results-container {
-        display: flex;
-        flex-direction: column;
-        gap: 15px;
-        margin-top: 10px;
-        margin-bottom: 20px;
-    }
-    .chemical-card {
-        background-color: #ffffff;
-        padding: 18px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        border-left: 6px solid #6366f1;
-    }
-    .card-trad { border-left-color: #10b981; }
-    .card-stock { border-left-color: #f59e0b; }
-    
-    .card-label {
-        font-size: 0.8rem;
-        color: #6b7280;
-        text-transform: uppercase;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-    }
-    .card-value {
-        font-size: 1.5rem;
-        color: #111827;
-        font-weight: 800;
-        margin-top: 4px;
-        line-height: 1.3;
-    }
+:root {
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --r-lg: 12px;
+    --sh-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --indigo: #4f46e5;
+    --green: #10b981;
+    --ink: #1f2937;
+}
+.results-grid { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; margin-bottom:1.2rem; width:100%; } 
+.result-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:1.2rem 1.1rem .95rem; box-shadow:var(--sh-lg); position:relative; overflow:hidden; min-width:0; word-wrap:break-word; overflow-wrap:break-word; } 
+.result-card::before { content:''; position:absolute; top:0; left:0; right:0; height:4px; border-radius:var(--r-lg) var(--r-lg) 0 0; } 
+.card-iupac::before { background:linear-gradient(90deg,#6366f1,#a5b4fc); } 
+.card-trad::before { background:linear-gradient(90deg,#059669,#6ee7b7); } 
+.rc-label { font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:1.6px; margin:.12rem 0 .45rem; } 
+.card-iupac .rc-label { color:var(--indigo); } 
+.card-trad .rc-label { color:var(--green); } 
+.rc-name { font-size:1.25rem; font-weight:600; line-height:1.3; color:var(--ink); } 
+.card-iupac .rc-name { color:#3730a3; } 
+.card-trad .rc-name { color:#065f46; } 
 </style>
 """, unsafe_allow_html=True)
 
-# =============================================================================
-# TUA MAPPA ORIGINALE COMPLETA DEI DATI CHIMICI
-# =============================================================================
-DATI_ELEMENTI = {
-    # METALLI ALCALINI (Gruppo 1) -> Ox: +1
-    "Na": {"nome": "Sodio", "tipo": "metallo", "ox_states": [1], "valenza_fissa": True},
-    "K":  {"nome": "Potassio", "tipo": "metallo", "ox_states": [1], "valenza_fissa": True},
-    "Ag": {"nome": "Argento", "tipo": "metallo", "ox_states": [1], "valenza_fissa": True},
-    
-    # METALLI ALCALINO-TERROSI (Gruppo 2) -> Ox: +2
-    "Ca": {"nome": "Calcio", "tipo": "metallo", "ox_states": [2], "valenza_fissa": True},
-    "Mg": {"nome": "Magnesio", "tipo": "metallo", "ox_states": [2], "valenza_fissa": True},
-    "Ba": {"nome": "Bario", "tipo": "metallo", "ox_states": [2], "valenza_fissa": True},
-    "Zn": {"nome": "Zinco", "tipo": "metallo", "ox_states": [2], "valenza_fissa": True},
-    
-    # METALLI TERROSI (Gruppo 13) -> Ox: +3
-    "Al": {"nome": "Alluminio", "tipo": "metallo", "ox_states": [3], "valenza_fissa": True},
-    
-    # METALLI DI TRANSIZIONE (Valenze Variabili)
-    "Fe": {"nome": "Ferro", "tipo": "metallo", "ox_states": [2, 3], "valenza_fissa": False, "tradizionale": {2: "ferroso", 3: "ferrico"}},
-    "Cu": {"nome": "Rame", "tipo": "metallo", "ox_states": [1, 2], "valenza_fissa": False, "tradizionale": {1: "rameoso", 2: "rameico"}},
-    "Hg": {"nome": "Mercurio", "tipo": "metallo", "ox_states": [1, 2], "valenza_fissa": False, "tradizionale": {1: "mercurioso", 2: "mercurico"}},
-    "Pb": {"nome": "Piombo", "tipo": "metallo", "ox_states": [2, 4], "valenza_fissa": False, "tradizionale": {2: "piomboso", 4: "piombico"}},
-    "Sn": {"nome": "Stagno", "tipo": "metallo", "ox_states": [2, 4], "valenza_fissa": False, "tradizionale": {2: "stagnoso", 4: "stagnico"}},
-    "Cr": {"nome": "Cromo", "tipo": "metallo", "ox_states": [2, 3, 6], "valenza_fissa": False, "tradizionale": {2: "cromoso", 3: "cromico", 6: "cromico"}},
-    "Mn": {"nome": "Manganese", "tipo": "metallo", "ox_states": [2, 3, 4, 6, 7], "valenza_fissa": False, "tradizionale": {2: "manganoso", 3: "manganico"}},
-    
-    # NON METALLI DI RIFERIMENTO COSTRUTTIVO
-    "H":  {"nome": "Idrogeno", "tipo": "non-metallo", "ox_states": [1, -1], "valenza_fissa": False},
-    "O":  {"nome": "Ossigeno", "tipo": "non-metallo", "ox_states": [-2], "valenza_fissa": True},
-    
-    # ALOGENI (Gruppo 17) -> Ox negativo nei sali/idracidi: -1
-    "F":  {"nome": "Fluoro", "tipo": "non-metallo", "ox_states": [-1], "valenza_fissa": True, "radice": "fluor", "anione_ox": -1},
-    "Cl": {"nome": "Cloro", "tipo": "non-metallo", "ox_states": [-1, 1, 3, 5, 7], "valenza_fissa": False, "tradizionale": {1: "ipoclorosa", 3: "clorosa", 5: "clorica", 7: "perclorica"}, "radice": "clor", "anione_ox": -1},
-    "Br": {"nome": "Bromo", "tipo": "non-metallo", "ox_states": [-1, 1, 3, 5, 7], "valenza_fissa": False, "tradizionale": {1: "ipobromosa", 3: "bromosa", 5: "bromica", 7: "perbromica"}, "radice": "brom", "anione_ox": -1},
-    "I":  {"nome": "Iodio", "tipo": "non-metallo", "ox_states": [-1, 1, 3, 5, 7], "valenza_fissa": False, "tradizionale": {1: "ipoiodosa", 3: "iodosa", 5: "iodica", 7: "periodica"}, "radice": "iod", "anione_ox": -1},
-    
-    # CALCOGENI (Gruppo 16) -> Ox negativo nei sali/idracidi: -2
-    "S":  {"nome": "Zolfo", "tipo": "non-metallo", "ox_states": [-2, 4, 6], "valenza_fissa": False, "tradizionale": {4: "solforosa", 6: "solforica"}, "radice": "solf", "anione_ox": -2},
-    
-    # GRUPPO AZOTO (Gruppo 15)
-    "N":  {"nome": "Azoto", "tipo": "non-metallo", "ox_states": [-3, 3, 5], "valenza_fissa": False, "tradizionale": {3: "nitroso", 5: "nitrico"}, "radice": "nitr", "anione_ox": -3},
-    "P":  {"nome": "Fosforo", "tipo": "non-metallo", "ox_states": [-3, 3, 5], "valenza_fissa": False, "tradizionale": {3: "fosforoso", 5: "fosforico"}, "radice": "fosfor", "anione_ox": -3},
-    
-    # GRUPPO CARBONIO (Gruppo 14)
-    "C":  {"nome": "Carbonio", "tipo": "non-metallo", "ox_states": [-4, 2, 4], "valenza_fissa": False, "tradizionale": {2: "carboniosa", 4: "carbonica"}, "radice": "carbon", "anione_ox": -4},
-    "Si": {"nome": "Silicio", "tipo": "non-metallo", "ox_states": [4], "valenza_fissa": True, "tradizionale": {4: "silicica"}, "radice": "silic"},
-    
-    # GRUPPO BORO (Gruppo 13)
-    "B":  {"nome": "Boro", "tipo": "non-metallo", "ox_states": [3], "valenza_fissa": True, "tradizionale": {3: "borica"}, "radice": "bor"}
+# ══════════════════════════════════════════════════════════════════════════════
+# SEZIONE 1 — DATABASE CHIMICO
+# ══════════════════════════════════════════════════════════════════════════════
+
+PREFISSI_GRECI: Dict[int, str] = {
+    1: 'mono', 2: 'di',   3: 'tri',  4: 'tetra', 5: 'penta',
+    6: 'esa',  7: 'epta', 8: 'otta', 9: 'nona',  10: 'deca',
 }
 
-PREFISSI_IUPAC = {1: "mono", 2: "di", 3: "tri", 4: "tetra", 5: "penta", 6: "esa", 7: "epta"}
-NUMERI_ROMANI = {1: "I", 2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII"}
+NUMERI_ROMANI: Dict[int, str] = {
+    1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V',
+    6: 'VI', 7: 'VII', 8: 'VIII', 9: 'IX', 10: 'X',
+}
 
-# =============================================================================
-# FUNZIONI CORE DELL'ALGORITMO CHIMICO REALE
-# =============================================================================
-def parse_formula(formula: str, log_list: list) -> list:
-    log_list.append("📌 **Fase 1: Analisi della stringa molecolare (Lexing/Parsing Regex)**")
-    pattern = r"([A-Z][a-z]*)(\d*)"
-    matches = re.findall(pattern, formula)
-    if not matches:
-        log_list.append("❌ Errore: La stringa immessa non corrisponde a un pattern molecolare valido.")
-        return None
-        
-    elementi = []
-    for el, ind in matches:
-        if el not in DATI_ELEMENTI:
-            log_list.append(f"❌ Errore: L'elemento **{el}** non è censito nel database dell'applicazione.")
-            return None
-        q = int(ind) if ind else 1
-        elementi.append((el, q))
-        log_list.append(f" - Rilevato simbolo chimico: **{el}** con indice stechiometrico = {q}")
-    return elementi
+DATI_ELEMENTI: Dict[str, Dict] = {
+    'H':  {'type': 'nonmetal', 'name_it': 'idrogeno', 'ox_states': [+1, -1]},
+    'O':  {'type': 'nonmetal', 'name_it': 'ossigeno', 'ox_states': [-2]},
+    'F':  {'type': 'nonmetal', 'name_it': 'fluoro', 'ox_states': [-1], 'anion': 'fluoruro'},
+    'Cl': {'type': 'nonmetal', 'name_it': 'cloro', 'ox_states': [-1, +1, +3, +5, +7], 'anion': 'cloruro'},
+    'Br': {'type': 'nonmetal', 'name_it': 'bromo', 'ox_states': [-1, +1, +3, +5], 'anion': 'bromuro'},
+    'I':  {'type': 'nonmetal', 'name_it': 'iodio', 'ox_states': [-1, +1, +5, +7], 'anion': 'ioduro'},
+    'S':  {'type': 'nonmetal', 'name_it': 'zolfo', 'ox_states': [-2, +4, +6], 'anion': 'solfuro'},
+    'Se': {'type': 'nonmetal', 'name_it': 'selenio', 'ox_states': [-2, +4, +6], 'anion': 'seleniuro'},
+    'Te': {'type': 'nonmetal', 'name_it': 'tellurio', 'ox_states': [-2, +4, +6], 'anion': 'tellururo'},
+    'N':  {'type': 'nonmetal', 'name_it': 'azoto', 'ox_states': [-3, +1, +2, +3, +4, +5], 'anion': 'nitruro'},
+    'P':  {'type': 'nonmetal', 'name_it': 'fosforo', 'ox_states': [-3, +3, +5], 'anion': 'fosfuro'},
+    'C':  {'type': 'nonmetal', 'name_it': 'carbonio', 'ox_states': [-4, +2, +4], 'anion': 'carburo'},
+    'Si': {'type': 'nonmetal', 'name_it': 'silicio', 'ox_states': [-4, +4], 'anion': 'siliciuro'},
+    'As': {'type': 'nonmetal', 'name_it': 'arsenico', 'ox_states': [-3, +3, +5], 'anion': 'arseniuro'},
+    'Sb': {'type': 'nonmetal', 'name_it': 'antimonio', 'ox_states': [-3, +3, +5], 'anion': 'antimoniuro'},
+    'B':  {'type': 'nonmetal', 'name_it': 'boro', 'ox_states': [+3], 'anion': 'boruro'},
+    
+    # Metalli a valenza fissa
+    'Li': {'type': 'metal', 'name_it': 'litio',    'ox_states': [+1], 'trad_adj': {+1: None}},
+    'Na': {'type': 'metal', 'name_it': 'sodio',    'ox_states': [+1], 'trad_adj': {+1: None}},
+    'K':  {'type': 'metal', 'name_it': 'potassio', 'ox_states': [+1], 'trad_adj': {+1: None}},
+    'Rb': {'type': 'metal', 'name_it': 'rubidio',  'ox_states': [+1], 'trad_adj': {+1: None}},
+    'Cs': {'type': 'metal', 'name_it': 'cesio',    'ox_states': [+1], 'trad_adj': {+1: None}},
+    'Be': {'type': 'metal', 'name_it': 'berillio',  'ox_states': [+2], 'trad_adj': {+2: None}},
+    'Mg': {'type': 'metal', 'name_it': 'magnesio',  'ox_states': [+2], 'trad_adj': {+2: None}},
+    'Ca': {'type': 'metal', 'name_it': 'calcio',    'ox_states': [+2], 'trad_adj': {+2: None}},
+    'Sr': {'type': 'metal', 'name_it': 'stronzio',  'ox_states': [+2], 'trad_adj': {+2: None}},
+    'Ba': {'type': 'metal', 'name_it': 'bario',     'ox_states': [+2], 'trad_adj': {+2: None}},
+    'Ra': {'type': 'metal', 'name_it': 'radio',     'ox_states': [+2], 'trad_adj': {+2: None}},
+    'Al': {'type': 'metal', 'name_it': 'alluminio', 'ox_states': [+3], 'trad_adj': {+3: None}},
+    'Zn': {'type': 'metal', 'name_it': 'zinco',     'ox_states': [+2], 'trad_adj': {+2: None}},
+    'Ag': {'type': 'metal', 'name_it': 'argento',   'ox_states': [+1], 'trad_adj': {+1: None}},
 
-def classifica_composto(elementi: list, formula_str: str, log_list: list) -> str:
-    log_list.append("📌 **Fase 2: Classificazione strutturale della specie chimica**")
-    if formula_str in ["H2O", "H2O1"]:
-        return "acqua"
-        
-    if len(elementi) == 2:
-        el1, _ = elementi[0]
-        el2, _ = elementi[1]
-        
-        if el2 == "O":
-            if DATI_ELEMENTI[el1]["tipo"] == "metallo":
-                log_list.append(f" - Accoppiamento Metallo ({el1}) + Ossigeno. Classe: **Ossido Basico**.")
-                return "ossido_basico"
+    # Metalli a valenza variabile
+    'Fe': {'type': 'metal', 'name_it': 'ferro', 'ox_states': [+2, +3], 'trad_adj': {+2: 'ferroso', +3: 'ferrico'}},
+    'Cu': {'type': 'metal', 'name_it': 'rame', 'ox_states': [+1, +2], 'trad_adj': {+1: 'rameoso', +2: 'rameico'}},
+    'Hg': {'type': 'metal', 'name_it': 'mercurio', 'ox_states': [+1, +2], 'trad_adj': {+1: 'mercuroso', +2: 'mercurico'}},
+    'Pb': {'type': 'metal', 'name_it': 'piombo', 'ox_states': [+2, +4], 'trad_adj': {+2: 'piomboso', +4: 'piombico'}},
+    'Sn': {'type': 'metal', 'name_it': 'stagno', 'ox_states': [+2, +4], 'trad_adj': {+2: 'stannoso', +4: 'stannico'}},
+    'Au': {'type': 'metal', 'name_it': 'oro', 'ox_states': [+1, +3], 'trad_adj': {+1: 'auroso', +3: 'aurico'}},
+    'Co': {'type': 'metal', 'name_it': 'cobalto', 'ox_states': [+2, +3], 'trad_adj': {+2: 'cobaltoso', +3: 'cobaltico'}},
+    'Ni': {'type': 'metal', 'name_it': 'nichel', 'ox_states': [+2, +3], 'trad_adj': {+2: 'nicheloso', +3: 'nichelico'}},
+    'Mn': {'type': 'metal', 'name_it': 'manganese', 'ox_states': [+2, +3, +4, +6, +7], 'trad_adj': {+2: 'manganoso', +3: 'manganico'}},
+    'Cr': {'type': 'metal', 'name_it': 'cromo', 'ox_states': [+2, +3, +6], 'trad_adj': {+2: 'cromoso', +3: 'cromico'}},
+    'Ti': {'type': 'metal', 'name_it': 'titanio', 'ox_states': [+2, +3, +4], 'trad_adj': {+2: 'titanoso', +3: 'titanico'}},
+    'V':  {'type': 'metal', 'name_it': 'vanadio', 'ox_states': [+2, +3, +4, +5], 'trad_adj': {+2: 'vanadoso', +3: 'vanadico'}},
+    'Bi': {'type': 'metal', 'name_it': 'bismuto', 'ox_states': [+3, +5], 'trad_adj': {+3: 'bismutoso', +5: 'bismutico'}},
+    'Pt': {'type': 'metal', 'name_it': 'platino', 'ox_states': [+2, +4], 'trad_adj': {+2: 'platinoso', +4: 'platinico'}},
+}
+
+NOMI_OSSIACIDI: Dict[Tuple, str] = {
+    ('S', 6): 'acido solforico',   ('S', 4): 'acido solforoso',
+    ('N', 5): 'acido nitrico',     ('N', 3): 'acido nitroso',     ('N', 4): 'acido nitroso',
+    ('P', 5): 'acido fosforico',   ('P', 3): 'acido fosforoso',
+    ('C', 4): 'acido carbonico',   ('C', 2): 'acido carbonoso',
+    ('Cl', 7): 'acido perclorico', ('Cl', 5): 'acido clorico',   ('Cl', 3): 'acido cloroso', ('Cl', 1): 'acido ipocloroso',
+    ('Br', 5): 'acido bromico',    ('Br', 3): 'acido bromoso',    ('Br', 1): 'acido ipobromoso',
+    ('I', 7): 'acido periodico',   ('I', 5): 'acido iodico',      ('I', 1): 'acido ipoiodoso',
+    ('Si', 4): 'acido silicico',   ('Cr', 6): 'acido cromico',    ('Mn', 7): 'acido permanganico',
+    ('B', 3): 'acido borico',      ('As', 5): 'acido arsenico',   ('As', 3): 'acido arsenioso',
+    ('Sb', 5): 'acido antimonico', ('Sb', 3): 'acido antimonioso',
+}
+
+NOMI_ANIDRIDI: Dict[Tuple, str] = {
+    ('S', 6): 'solforica',     ('S', 4): 'solforosa',
+    ('N', 5): 'nitrica',       ('N', 3): 'nitrosa',       ('N', 4): 'nitrosa',
+    ('P', 5): 'fosforica',     ('P', 3): 'fosforosa',
+    ('C', 4): 'carbonica',     ('C', 2): 'carbonosa',
+    ('Cl', 7): 'perclorica',    ('Cl', 5): 'clorica',      ('Cl', 3): 'clorosa', ('Cl', 1): 'ipoclorosa',
+    ('Br', 5): 'bromica',       ('Br', 1): 'ipobromosa',
+    ('I', 7): 'periodica',      ('I', 5): 'iodica',        ('I', 1): 'ipoiodosa',
+    ('Si', 4): 'silicica',      ('Cr', 6): 'cromica',      ('Mn', 7): 'permanganica', ('B', 3): 'borica',
+    ('As', 5): 'arsenica',      ('As', 3): 'arseniosa',
+}
+
+NOMI_IDRACIDI: Dict[str, str] = {
+    'F': 'acido fluoridrico',  'Cl': 'acido cloridrico', 'Br': 'acido bromidrico',
+    'I': 'acido iodidrico',   'S': 'acido solfidrico',   'Se': 'acido selenidrico',
+    'Te': 'acido telluridrico', 'N': 'acido azotidrico',  'P': 'acido fosfidrico',
+}
+
+NOMI_ANIONI: Dict[str, str] = {
+    'F': 'fluoruro', 'Cl': 'cloruro',  'Br': 'bromuro',  'I':  'ioduro',
+    'S': 'solfuro',  'Se': 'seleniuro','Te': 'tellururo', 'O':  'ossido',
+    'N': 'nitruro',  'P':  'fosfuro',  'C':  'carburo',   'Si': 'siliciuro',
+    'As':'arseniuro','H':  'idruro',   'B':  'boruro',    'Sb': 'antimoniuro',
+}
+
+RADICI_IUPAC = {
+    'S': 'solfor', 'N': 'nitr', 'P': 'fosfor', 'C': 'carbon', 'Cl': 'clor', 
+    'Br': 'brom', 'I': 'iod', 'Si': 'silic', 'Cr': 'crom', 'Mn': 'mangan', 
+    'B': 'bor', 'As': 'arsen', 'Sb': 'antimon'
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SEZIONE 2 — PARSING E LOGICA ALGORITMICA
+# ══════════════════════════════════════════════════════════════════════════════
+
+def valida_formula(formula: str) -> Tuple[bool, str]:
+    if not formula or not formula.strip():
+        return False, "La formula non può essere vuota."
+    if not re.match(r'^[A-Za-z0-9()]+$', formula):
+        return False, "Usa solo lettere, cifre e parentesi tonde ()."
+    profondita = 0
+    for i, ch in enumerate(formula):
+        if ch == '(': profondita += 1
+        elif ch == ')': profondita -= 1
+        if profondita < 0: return False, f"Parentesi ')' alla posizione {i+1} sbilanciata."
+    if profondita != 0: return False, "Una o più parentesi '(' non sono state chiuse."
+    if not (formula[0].isupper() or formula[0] == '('):
+        return False, "La formula deve iniziare con una lettera maiuscola."
+    return True, ''
+
+def parse_formula(formula: str) -> Dict[str, int]:
+    def _parse(testo: str, fattore: int = 1) -> Dict[str, int]:
+        risultato: Dict[str, int] = {}
+        i = 0
+        while i < len(testo):
+            if testo[i] == '(':
+                profondita = 1
+                j = i + 1
+                while j < len(testo) and profondita > 0:
+                    if testo[j] == '(': profondita += 1
+                    elif testo[j] == ')': profondita -= 1
+                    j += 1
+                k = j
+                while k < len(testo) and testo[k].isdigit(): k += 1
+                mult_esterno = int(testo[j:k]) if k > j else 1
+                contenuto_interno = _parse(testo[i + 1: j - 1], fattore * mult_esterno)
+                for elem, cnt in contenuto_interno.items():
+                    risultato[elem] = risultato.get(elem, 0) + cnt
+                i = k
+            elif testo[i].isupper():
+                j = i + 1
+                while j < len(testo) and testo[j].islower(): j += 1
+                simbolo = testo[i:j]
+                k = j
+                while k < len(testo) and testo[k].isdigit(): k += 1
+                pedice = int(testo[j:k]) if k > j else 1
+                risultato[simbolo] = risultato.get(simbolo, 0) + pedice * fattore
+                i = k
             else:
-                log_list.append(f" - Accoppiamento Non-metallo ({el1}) + Ossigeno. Classe: **Anidride (Ossido Acido)**.")
-                return "anidride"
-        if el1 == "H" and DATI_ELEMENTI[el2]["tipo"] == "non-metallo":
-            if el2 in ["F", "Cl", "Br", "I", "S"]:
-                log_list.append(f" - Accoppiamento Idrogeno + Alogeno/Calcogeno ({el2}). Classe: **Idracido**.")
-                return "idracido"
-        if DATI_ELEMENTI[el1]["tipo"] == "metallo" and DATI_ELEMENTI[el2]["tipo"] == "non-metallo":
-            log_list.append(f" - Accoppiamento Metallo ({el1}) + Non-metallo ({el2}). Classe: **Sale Binario**.")
-            return "sale_binario"
+                i += 1
+        return risultato
+    return _parse(formula)
+
+def classifica_composto(elementi: Dict[str, int]) -> Tuple[Optional[str], List[str]]:
+    log = []
+    chiavi = list(elementi.keys())
+    log.append(f"🔍 **Elementi estratti**: {', '.join(chiavi)}")
+    
+    for el in chiavi:
+        if el not in DATI_ELEMENTI:
+            log.append(f"❌ Elemento '{el}' sconosciuto al database.")
+            return None, log
+            
+    if len(elementi) == 1:
+        log.append("⚠️ È una sostanza elementare (es. O₂). L'app analizza composti legati binari o ternari.")
+        return None, log
+        
+    elif len(elementi) == 2:
+        log.append("🧪 **Composto Binario** rilevato.")
+        if 'H' in elementi and 'O' in elementi:
+            return "acqua", log
+        if 'O' in elementi:
+            altro = [el for el in chiavi if el != 'O'][0]
+            if DATI_ELEMENTI[altro]['type'] == 'metal':
+                log.append(f"• Contiene Ossigeno + Metallo ({DATI_ELEMENTI[altro]['name_it']}) → **Ossido Basico**.")
+                return "ossido_basico", log
+            else:
+                log.append(f"• Contiene Ossigeno + Non-Metallo ({DATI_ELEMENTI[altro]['name_it']}) → **Anidride (Ossido Acido)**.")
+                return "anidride", log
+        if 'H' in elementi:
+            altro = [el for el in chiavi if el != 'H'][0]
+            if DATI_ELEMENTI[altro]['type'] == 'nonmetal' and altro in ['F', 'Cl', 'Br', 'I', 'S', 'Se', 'Te']:
+                log.append(f"• Contiene Idrogeno + Non-metallo specifico → **Idracido**.")
+                return "idracido", log
+        el1, el2 = chiavi[0], chiavi[1]
+        if (DATI_ELEMENTI[el1]['type'] == 'metal' and DATI_ELEMENTI[el2]['type'] == 'nonmetal') or \
+           (DATI_ELEMENTI[el1]['type'] == 'nonmetal' and DATI_ELEMENTI[el2]['type'] == 'metal'):
+            log.append("• Contiene Metallo + Non-metallo → **Sale Binario**.")
+            return "sale_binario", log
             
     elif len(elementi) == 3:
-        el1, _ = elementi[0]
-        el2, _ = elementi[1]
-        el3, _ = elementi[2]
-        if el1 == "H" and el3 == "O":
-            log_list.append(f" - Struttura ternaria H + Non-metallo ({el2}) + O. Classe: **Ossiacido**.")
-            return "ossiacido"
-            
-    log_list.append("❌ Classe di composto non identificata o non supportata dall'albero decisionale.")
-    return "non_supportato"
+        log.append("🧪 **Composto Ternario** rilevato.")
+        if 'O' in elementi and 'H' in elementi:
+            metallo = [el for el in chiavi if el not in ['O', 'H']]
+            if metallo and DATI_ELEMENTI[metallo[0]]['type'] == 'metal':
+                log.append(f"• Contiene Metallo ({DATI_ELEMENTI[metallo[0]]['name_it']}) + gruppi OH → **Idrossido**.")
+                return "idrossido", log
+        if 'H' in elementi and 'O' in elementi:
+            nonmetallo = [el for el in chiavi if el not in ['O', 'H']]
+            if nonmetallo and DATI_ELEMENTI[nonmetallo[0]]['type'] == 'nonmetal':
+                log.append(f"• Contiene Idrogeno + Non-metallo ({DATI_ELEMENTI[nonmetallo[0]]['name_it']}) + Ossigeno → **Ossiacido**.")
+                return "ossiacido", log
 
-def calcola_stati_ossidazione(tipo: str, elementi: list, log_list: list) -> dict:
-    log_list.append("📌 **Fase 3: Risoluzione del sistema lineare delle cariche (Elettroneutralità)**")
-    ox_map = {}
-    
+    log.append("⚠️ Tipologia di composto non supportata (es. idruri metallici o ossisali complessi).")
+    return None, log
+
+def calcola_ossidazione(elementi: Dict[str, int], tipo: str, log: List[str]) -> Dict[str, int]:
+    ox = {}
     if tipo == "acqua":
-        return {"H": 1, "O": -2}
-        
-    if tipo == "idracido":
-        el1, _ = elementi[0]
-        el2, _ = elementi[1]
-        ox_map[el1] = 1
-        ox_map[el2] = -2 if el2 == "S" else -1
-        log_list.append(f" - Regola idracidi fissa: {el1} = +1, di conseguenza {el2} = {ox_map[el2]}")
-        return ox_map
-
-    # --- CORREZIONE REALE PER I SALI BINARI (Risolve Cu2S) ---
-    if tipo == "sale_binario":
-        m_el, m_q = elementi[0]
-        nm_el, nm_q = elementi[1]
-        
-        # L'anione (destra) nei sali binari prende sempre il suo stato negativo stabile fisso
-        nm_ox = DATI_ELEMENTI[nm_el].get("anione_ox", -1)
-        ox_map[nm_el] = nm_ox
-        log_list.append(f" - Regola Anione: Il non-metallo a destra '{nm_el}' assume stato d'ossidazione negativo fisso = {nm_ox}")
-        
-        # Equazione: (m_q * X) + (nm_q * nm_ox) = 0  => X = -(nm_q * nm_ox) / m_q
-        carica_negativa_totale = nm_q * nm_ox
-        if (-carica_negativa_totale) % m_q == 0:
-            ox_map[m_el] = int(-carica_negativa_totale / m_q)
-            log_list.append(f" - Equazione risolta per il metallo '{m_el}': ({m_q} * X) + ({carica_negativa_totale}) = 0 ➔ X = +{ox_map[m_el]}")
-            return ox_map
-        return None
-
+        return {'H': 1, 'O': -2}
     if tipo in ["ossido_basico", "anidride"]:
-        el1, q1 = elementi[0]
-        el2, q2 = elementi[1]
-        ox_map[el2] = -2
-        log_list.append(" - Regola Ossigeno fissa: O = -2")
-        if (2 * q2) % q1 == 0:
-            ox_map[el1] = int((2 * q2) / q1)
-            log_list.append(f" - Equazione bilancio: ({q1} * X) + ({q2} * -2) = 0 ➔ {el1} = +{ox_map[el1]}")
-            return ox_map
-        return None
+        ox['O'] = -2
+        altro = [el for el in elementi if el != 'O'][0]
+        ox[altro] = (elementi['O'] * 2) // elementi[altro]
+        log.append(f"• L'Ossigeno ha n.ox. fisso **-2**. Carica anionica totale: {elementi['O']} × (-2) = {-2*elementi['O']}.")
+        log.append(f"• Per la neutralità molecolare, il {altro} deve compensare con n.ox. totale di +{elementi['O']*2}.")
+        log.append(f"• Stato di ossidazione individuale di **{altro}** = **+{ox[altro]}**.")
+    elif tipo == "idracido":
+        ox['H'] = 1
+        altro = [el for el in elementi if el != 'H'][0]
+        ox[altro] = -elementi['H'] // elementi[altro]
+        log.append(f"• L'Idrogeno ha n.ox. **+1**. Carica totale: +{elementi['H']}.")
+        log.append(f"• Il non-metallo **{altro}** assume n.ox. negativo per bilanciare: **{ox[altro]}**.")
+    elif tipo == "sale_binario":
+        metallo = [el for el in elementi if DATI_ELEMENTI[el]['type'] == 'metal'][0]
+        nonmetallo = [el for el in elementi if DATI_ELEMENTI[el]['type'] == 'nonmetal'][0]
+        ox_nm = [x for x in DATI_ELEMENTI[nonmetallo]['ox_states'] if x < 0][0]
+        ox[nonmetallo] = ox_nm
+        ox[metallo] = -(elementi[nonmetallo] * ox_nm) // elementi[metallo]
+        log.append(f"• Il non-metallo (**{nonmetallo}**) assume il suo stato negativo stabile: **{ox_nm}**.")
+        log.append(f"• Per azzerare la molecola, il metallo (**{metallo}**) assume n.ox. pari a **+{ox[metallo]}**.")
+    elif tipo == "idrossido":
+        ox['O'], ox['H'] = -2, 1
+        metallo = [el for el in elementi if el not in ['O', 'H']][0]
+        ox[metallo] = (2 * elementi['O'] - elementi['H']) // elementi[metallo]
+        log.append(f"• Il gruppo (OH) ha complessivamente carica **-1**.")
+        log.append(f"• Il metallo **{metallo}** compensa i gruppi anionici con uno stato di **+{ox[metallo]}**.")
+    elif tipo == "ossiacido":
+        ox['O'], ox['H'] = -2, 1
+        nm = [el for el in elementi if el not in ['O', 'H']][0]
+        ox[nm] = (2 * elementi['O'] - elementi['H']) // elementi[nm]
+        log.append(f"• Impostati H = +1 e O = -2. Bilancio: ({elementi['H']}×1) + ({elementi['O']}×-2) = {elementi['H'] - 2*elementi['O']}.")
+        log.append(f"• Il non-metallo **{nm}** equilibra la carica residua con uno stato di **+{ox[nm]}**.")
+    return ox
+
+def valida_ossidazione_risultato(ossidazione: Dict[str, int], elementi: Dict[str, int], tipo: str) -> Tuple[bool, str]:
+    for el, val in ossidazione.items():
+        if el in DATI_ELEMENTI and val not in DATI_ELEMENTI[el]['ox_states']:
+            return False, f"Lo stato di ossidazione calcolato per {el} ({val}) non corrisponde a valori stabili ammessi."
+    return True, ""
+
+def genera_nomenclatura(elementi: Dict[str, int], ox: Dict[str, int], tipo: str, log: List[str]) -> Tuple[str, str]:
+    if tipo == "acqua":
+        return "Ossido di diidrogeno", "Acqua"
+        
+    if tipo == "ossido_basico":
+        metallo = [el for el in elementi if el != 'O'][0]
+        pref_o = PREFISSI_GRECI.get(elementi['O'], '')
+        pref_m = PREFISSI_GRECI.get(elementi[metallo], '') if elementi[metallo] > 1 else ''
+        nome_met = DATI_ELEMENTI[metallo]['name_it']
+        iupac = f"Monossido di {pref_m}{nome_met}" if pref_o == "mono" else f"{pref_o[:-1] if pref_o.endswith(('a','o')) else pref_o}ossido di {pref_m}{nome_met}"
+        adj = DATI_ELEMENTI[metallo]['trad_adj'].get(ox[metallo])
+        trad = f"Ossido di {nome_met}" if adj is None else f"Ossido {adj}"
+        log.append(f"• Appplicati prefissi IUPAC stechiometrici e suffissi tradizionali basati su n.ox. +{ox[metallo]}.")
+        return iupac.capitalize(), trad.capitalize()
+
+    if tipo == "anidride":
+        nm = [el for el in elementi if el != 'O'][0]
+        pref_o = PREFISSI_GRECI.get(elementi['O'], '')
+        pref_nm = PREFISSI_GRECI.get(elementi[nm], '') if elementi[nm] > 1 else ''
+        nome_nm = DATI_ELEMENTI[nm]['name_it']
+        iupac = f"Monossido di {pref_nm}{nome_nm}" if pref_o == "mono" else f"{pref_o[:-1] if pref_o.endswith(('a','o')) else pref_o}ossido di {pref_nm}{nome_nm}"
+        aggettivo = NOMI_ANIDRIDI.get((nm, ox[nm]))
+        trad = f"Anidride {aggettivo}" if aggettivo else f"Ossido di {nome_nm} ({NUMERI_ROMANI.get(ox[nm])})"
+        log.append(f"• Nomenclatura basata su prefissi greci (IUPAC) e tavola delle anidridi (Tradizionale).")
+        return iupac.capitalize(), trad.capitalize()
+
+    if tipo == "idrossido":
+        metallo = [el for el in elementi if el not in ['O', 'H']][0]
+        pref_oh = PREFISSI_GRECI.get(elementi['O'], '')
+        pref_m = PREFISSI_GRECI.get(elementi[metallo], '') if elementi[metallo] > 1 else ''
+        nome_met = DATI_ELEMENTI[metallo]['name_it']
+        iupac = f"{pref_oh}idrossido di {pref_m}{nome_met}"
+        adj = DATI_ELEMENTI[metallo]['trad_adj'].get(ox[metallo])
+        trad = f"Idrossido di {nome_met}" if adj is None else f"Idrossido {adj}"
+        return iupac.capitalize(), trad.capitalize()
+
+    if tipo == "idracido":
+        nm = [el for el in elementi if el != 'H'][0]
+        anione = NOMI_ANIONI.get(nm, nm.lower() + "uro")
+        pref_h = PREFISSI_GRECI.get(elementi['H'], '') if elementi['H'] > 1 else ''
+        iupac = f"{anione} di {pref_h}idrogeno"
+        trad = NOMI_IDRACIDI.get(nm, f"Acido {nm.lower()}idrico")
+        return iupac.capitalize(), trad.capitalize()
 
     if tipo == "ossiacido":
-        h_el, h_q = elementi[0]
-        nm_el, nm_q = elementi[1]
-        o_el, o_q = elementi[2]
-        ox_map[h_el] = 1
-        ox_map[o_el] = -2
-        log_list.append(" - Regole fisse assegnate: H = +1, O = -2")
-        
-        lato_positivo = h_q * 1
-        lato_negativo = o_q * (-2)
-        differenza = -(lato_positivo + lato_negativo)
-        
-        if differenza % nm_q == 0:
-            ox_map[nm_el] = int(differenza / nm_q)
-            log_list.append(f" - Bilancio atomo centrale '{nm_el}': ({h_q}*1) + ({nm_q}*X) + ({o_q}*-2) = 0 ➔ X = +{ox_map[nm_el]}")
-            return ox_map
-        return None
+        nm = [el for el in elementi if el not in ['O', 'H']][0]
+        pref_o = PREFISSI_GRECI.get(elementi['O'], '')
+        radice = RADICI_IUPAC.get(nm, nm.lower())
+        iupac = f"Acido {pref_o}oxxo{radice}ico".replace("oo", "o").replace("oxxo", "osso")
+        trad = NOMI_OSSIACIDI.get((nm, ox[nm]), f"Acido di {radice} (+{ox[nm]})")
+        return iupac.capitalize(), trad.capitalize()
 
-    return None
+    if tipo == "sale_binario":
+        metallo = [el for el in elementi if DATI_ELEMENTI[el]['type'] == 'metal'][0]
+        nonmetallo = [el for el in elementi if DATI_ELEMENTI[el]['type'] == 'nonmetal'][0]
+        anione = NOMI_ANIONI.get(nonmetallo, nonmetallo.lower() + "uro")
+        pref_nm = PREFISSI_GRECI.get(elementi[nonmetallo], '')
+        pref_m = PREFISSI_GRECI.get(elementi[metallo], '') if elementi[metallo] > 1 else ''
+        nome_met = DATI_ELEMENTI[metallo]['name_it']
+        iupac = f"{pref_nm}{anione} di {pref_m}{nome_met}"
+        adj = DATI_ELEMENTI[metallo]['trad_adj'].get(ox[metallo])
+        trad = f"{anione} di {nome_met}" if adj is None else f"{anione} {adj}"
+        return iupac.capitalize(), trad.capitalize()
 
-def genera_nomi_completi(tipo: str, elementi: list, ox: dict) -> dict:
-    res = {"iupac": "", "tradizionale": "", "stock": ""}
-    
-    if tipo == "acqua":
-        return {"iupac": "Ossido di diidrogeno", "tradizionale": "Acqua", "stock": "Ossido di idrogeno"}
+    return "—", "—"
 
-    if tipo in ["ossido_basico", "anidride"]:
-        el1, q1 = elementi[0]
-        q2 = elementi[1][1]
-        ox_val = ox[el1]
-        
-        # IUPAC
-        p_o = PREFISSI_IUPAC.get(q2, "")
-        p_m = f"di {PREFISSI_IUPAC.get(q1, '')}" if q1 > 1 else "di "
-        base = "ossido" if p_o == "mono" else f"{p_o}ossido"
-        if base.endswith("ao"): base = base.replace("ao", "o")
-        res["iupac"] = f"{base.capitalize()} {p_m}{DATI_ELEMENTI[el1]['nome'].lower()}".strip()
-        
-        # STOCK
-        res["stock"] = f"Ossido di {DATI_ELEMENTI[el1]['nome'].lower()} ({NUMERI_ROMANI.get(ox_val, str(ox_val))})"
-        
-        # TRADIZIONALE
-        if tipo == "ossido_basico":
-            if DATI_ELEMENTI[el1]["valenza_fissa"]:
-                res["tradizionale"] = f"Ossido di {DATI_ELEMENTI[el1]['nome'].lower()}"
-            else:
-                suff = DATI_ELEMENTI[el1]["tradizionale"].get(ox_val, "")
-                res["tradizionale"] = f"Ossido {suff}"
-        else: # Anidride
-            if DATI_ELEMENTI[el1]["valenza_fissa"]:
-                res["tradizionale"] = f"Anidride {DATI_ELEMENTI[el1]['tradizionale'].get(ox_val, DATI_ELEMENTI[el1]['nome'].lower() + 'ica')}"
-            else:
-                suff = DATI_ELEMENTI[el1]["tradizionale"].get(ox_val, "")
-                res["tradizionale"] = f"Anidride {suff}"
+# ══════════════════════════════════════════════════════════════════════════════
+# SEZIONE 3 — INTERFACCIA UTENTE (STREAMLIT)
+# ══════════════════════════════════════════════════════════════════════════════
 
-    elif tipo == "idracido":
-        q1 = elementi[0][1]
-        el2 = elementi[1][0]
-        rad = DATI_ELEMENTI[el2]["radice"]
-        res["iupac"] = f"{rad.capitalize()}uro di {PREFISSI_IUPAC.get(q1, '')}idrogeno".strip()
-        res["tradizionale"] = f"Acido {rad}idrico"
-        res["stock"] = res["iupac"]
+st.markdown("""
+<div style="text-align:center; margin-bottom: 2rem;">
+    <h1 style="font-size: 2.5rem; color: #4f46e5;">⚗️ ChimicaNome</h1>
+    <p style="font-size: 1.1rem; color: #64748b;">Nomenclatore Automatico di Composti Inorganici — Algoritmo Puro</p>
+</div>
+""", unsafe_allow_html=True)
 
-    elif tipo == "sale_binario":
-        m_el, m_q = elementi[0]
-        nm_el, nm_q = elementi[1]
-        ox_m = ox[m_el]
-        rad = DATI_ELEMENTI[nm_el]["radice"]
-        
-        res["iupac"] = f"{PREFISSI_IUPAC.get(nm_q, '')}{rad}uro di {PREFISSI_IUPAC.get(m_q, '')}{DATI_ELEMENTI[m_el]['nome'].lower()}".replace("di mono", "di ").strip()
-        res["stock"] = f"{rad.capitalize()}uro di {DATI_ELEMENTI[m_el]['nome'].lower()} ({NUMERI_ROMANI.get(ox_m, str(ox_m))})"
-        
-        if DATI_ELEMENTI[m_el]["valenza_fissa"]:
-            res["tradizionale"] = f"{rad.capitalize()}uro di {DATI_ELEMENTI[m_el]['nome'].lower()}"
-        else:
-            suff = DATI_ELEMENTI[m_el]["tradizionale"].get(ox_m, "")
-            if suff.endswith("ica"): suff = suff[:-3] + "ico"
-            if suff.endswith("osa"): suff = suff[:-3] + "oso"
-            res["tradizionale"] = f"{rad.capitalize()}uro {suff}"
+# Definiamo la lista degli esempi
+ESEMPI = {
+    "— Seleziona una formula rapida per testare... —": "",
+    "⬛ Fe₂O₃ — ossido ferrico": "Fe2O3",
+    "⬛ FeO — ossido ferroso": "FeO",
+    "⬛ CaO — ossido di calcio": "CaO",
+    "⬛ Na₂O — ossido di sodio": "Na2O",
+    "⬛ Cu₂O — ossido rameoso": "Cu2O",
+    "⬛ CuO — ossido rameico": "CuO",
+    "🔷 SO₃ — anidride solforica": "SO3",
+    "🔷 CO₂ — diossido di carbonio": "CO2",
+    "🔷 N₂O₅ — anidride nitrica": "N2O5",
+    "🔷 Cl₂O₇ — anidride perclorica": "Cl2O7",
+    "🌿 NaOH — idrossido di sodio": "NaOH",
+    "🌿 Ca(OH)₂ — idrossido di calcio": "Ca(OH)2",
+    "🌿 Fe(OH)₃ — idrossido ferrico": "Fe(OH)3",
+    "🔥 HCl — acido cloridrico": "HCl",
+    "🔥 H₂S — acido solfidrico": "H2S",
+    "🧪 H₂SO₄ — acido solforico": "H2SO4",
+    "🧪 HNO₃ — acido nitrico": "HNO3",
+    "🧪 HClO₄ — acido perclorico": "HClO4",
+    "🧪 H₃PO₄ — acido fosforico": "H3PO4",
+    "⚪ NaCl — cloruro di sodio": "NaCl",
+    "⚪ FeCl₃ — cloruro ferrico": "FeCl3",
+    "⚪ AlCl₃ — cloruro di alluminio": "AlCl3",
+    "⚪ PbI₂ — ioduro piomboso": "PbI2",
+    "⚪ SnCl₄ — cloruro stannico": "SnCl4",
+    "⚪ Ag₂S — solfuro di argento": "Ag2S",
+    "⚪ Ca₃N₂ — nitruro di calcio": "Ca3N2",
+}
 
-    elif tipo == "ossiacido":
-        nm_el = elementi[1][0]
-        q3 = elementi[2][1]
-        ox_nm = ox[nm_el]
-        rad = DATI_ELEMENTI[nm_el]["radice"]
-        
-        res["iupac"] = f"Acido {PREFISSI_IUPAC.get(q3, '')}osso{rad}ico".lower().capitalize()
-        res["stock"] = f"Acido {PREFISSI_IUPAC.get(q3, '')}osso{rad}ico ({NUMERI_ROMANI.get(ox_nm, str(ox_nm))})".lower().capitalize()
-        suff = DATI_ELEMENTI[nm_el]["tradizionale"].get(ox_nm, "ossiacido")
-        res["tradizionale"] = f"Acido {suff}"
+# Inizializzazione stabile della variabile di stato
+if 'formula_corrente' not in st.session_state:
+    st.session_state['formula_corrente'] = ''
 
-    return res
+# Funzione callback richiamata istantaneamente al cambio della selectbox
+def aggiorna_da_selectbox():
+    scelta = st.session_state['esempio_selezionato']
+    formula_vera = ESEMPI.get(scelta, '')
+    if formula_vera:
+        st.session_state['formula_corrente'] = formula_vera
 
-def gestisci_idrossidi(formula: str) -> dict:
-    pattern = r"([A-Z][a-z]*)\(OH\)(\d+)|([A-Z][a-z]*)OH"
-    match = re.match(pattern, formula)
-    if not match:
-        return None
-    g1, g2, g3 = match.groups()
-    metallo = g3 if g3 else g1
-    carica = 1 if g3 else int(g2)
-    
-    if metallo not in DATI_ELEMENTI:
-        return None
-        
-    pref = PREFISSI_IUPAC.get(carica, "")
-    iupac = f"{pref}idrossido di {DATI_ELEMENTI[metallo]['nome'].lower()}".replace("monoidrossido", "idrossido").strip()
-    stock = f"Idrossido di {DATI_ELEMENTI[metallo]['nome'].lower()} ({NUMERI_ROMANI.get(carica, str(carica))})"
-    
-    if DATI_ELEMENTI[metallo]["valenza_fissa"]:
-        trad = f"Idrossido di {DATI_ELEMENTI[metallo]['nome'].lower()}"
-    else:
-        suff = DATI_ELEMENTI[metallo]["tradizionale"].get(carica, "")
-        if suff.endswith("ica"): suff = suff[:-3] + "ico"
-        if suff.endswith("osa"): suff = suff[:-3] + "oso"
-        trad = f"Idrossido {suff}"
-        
-    return {"iupac": iupac, "tradizionale": trad, "stock": stock, "metallo": metallo, "carica": carica}
-
-# =============================================================================
-# INTERFACCIA STREAMLIT COERENTE E AGGIORNATA AD ATTIVAZIONE ISTANTANEA
-# =============================================================================
-st.markdown('<div class="main-title">⚗️ ChimicaNome</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Nomenclatore Inorganico Digitale per l\'Esame di Stato</div>', unsafe_allow_html=True)
-
-# 1. Inizializzazione stabile della chiave del widget nel session_state
-if "casella_formula" not in st.session_state:
-    st.session_state.casella_formula = ""
-
-# 2. Callback strategica: Scatta istantaneamente appena tocchi un esempio dalla lista
-def applica_esempio_rapido():
-    if st.session_state.esempio_scelto != "Scegli un composto di esempio...":
-        # Estrae la formula pura prima dello spazio (es. "Cu2S") e la inietta nel text_input
-        st.session_state.casella_formula = st.session_state.esempio_scelto.split(" ")[0]
-
-# 3. Selectbox salvaspazio legata alla funzione di attivazione
+# Menu a tendina degli esempi rapidi
 st.selectbox(
-    "🔬 Seleziona una formula rapida per il test istantaneo:",
-    [
-        "Scegli un composto di esempio...",
-        "Cu2S (Solfuro Rameoso)",
-        "Fe2O3 (Ossido Ferrico)",
-        "HCl (Acido Cloridrico)",
-        "H2SO4 (Acido Solforico)",
-        "NaOH (Idrossido di Sodio)",
-        "CO2 (Anidride Carbonica)",
-        "H2O (Acqua)"
-    ],
-    key="esempio_scelto",
-    on_change=applica_esempio_rapido
+    "🔬 **Seleziona una formula rapida per testare:**",
+    options=list(ESEMPI.keys()),
+    key='esempio_selezionato',
+    on_change=aggiorna_da_selectbox,
+    help="Scegli un composto per caricarlo istantaneamente nell'app."
 )
 
-# 4. Campo di testo agganciato alla chiave globale del session state
+st.markdown("<div style='height:.4rem'></div>", unsafe_allow_html=True)
+
+# Casella di testo legata stabilmente allo stato centralizzato
 formula_utente = st.text_input(
-    "Formula Chimica Molecolare:",
-    key="casella_formula",
-    placeholder="Es: Cu2S, Fe2O3, HCl, H2SO4..."
+    "📝 **Modifica o inserisci la formula chimica (es. ASCII senza pedici):**",
+    key='formula_corrente',
+    placeholder="es. Fe2O3, H2SO4, Ca(OH)2...",
 )
 
-# Esecuzione automatica se la stringa è presente (per caricamento da selectbox o click invio)
+# 🏁 BLOCCO DI ESECUZIONE PASSO-PASSO
 if formula_utente:
-    formula_pulita = formula_utente.strip().replace(" ", "")
-    log_totali = ["Inizializzazione modulo chimico."]
+    st.markdown("### 🗺️ Percorso Trasparente dell'Algoritmo")
     
-    # Controllo se si tratta di un idrossido ternario
-    idrossido_data = gestisci_idrossidi(formula_pulita)
-    
-    if idrossido_data:
-        st.success("Analisi Molecolare Terminata!")
-        
-        st.markdown('<div class="results-container">', unsafe_allow_html=True)
-        st.markdown(f'<div class="chemical-card"><div class="card-label">Nomenclatura IUPAC</div><div class="card-value">{idrossido_data["iupac"]}</div></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="chemical-card card-trad"><div class="card-label">Nomenclatura Tradizionale</div><div class="card-value">{idrossido_data["tradizionale"]}</div></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="chemical-card card-stock"><div class="card-label">Notazione di Stock</div><div class="card-value">{idrossido_data["stock"]}</div></div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        with st.expander("🔍 Mostra tutti i passaggi logici e i dati dell'algoritmo", expanded=False):
-            st.write("- **Fase 1: Parsing molecolare:** Rilevato gruppo funzionale ossidrilico poliatomico `(OH)` tramite espressione regolare dedicata.")
-            st.write(f"- **Fase 2: Classificazione:** Identificato come **Idrossido Ternario**.")
-            st.write(f"- **Fase 3: Calcolo delle Cariche:** Il gruppo `OH` ha carica complessiva fissa pari a `-1`. Essendoci {idrossido_data['carica']} gruppi, la carica bilanciata del metallo centrale (**{DATI_ELEMENTI[idrossido_data['metallo']]['nome']}**) è pari a **+{idrossido_data['carica']}**.")
-            
-    else:
-        # Analisi ordinaria binari e ternari
-        elementi_correnti = parse_formula(formula_pulita, log_totali)
-        
-        if elementi_correnti:
-            tipo_composto = classifica_composto(elementi_correnti, formula_pulita, log_totali)
-            
-            if tipo_composto != "non_supportato":
-                ox_calcolati = calcola_stati_ossidazione(tipo_composto, elementi_correnti, log_totali)
-                
-                if ox_calcolati:
-                    nomi = genera_nomi_completi(tipo_composto, elementi_correnti, ox_calcolati)
-                    st.success("Analisi Molecolare Terminata!")
-                    
-                    st.markdown('<div class="results-container">', unsafe_allow_html=True)
-                    st.markdown(f'<div class="chemical-card"><div class="card-label">Nomenclatura IUPAC</div><div class="card-value">{nomi["iupac"]}</div></div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="chemical-card card-trad"><div class="card-label">Nomenclatura Tradizionale</div><div class="card-value">{nomi["tradizionale"]}</div></div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="chemical-card card-stock"><div class="card-label">Notazione di Stock</div><div class="card-value">{nomi["stock"]}</div></div>', unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                    # RIPRISTINO INTEGRALE DI TUTTI I PASSAGGI DIDATTICI RICHIESTI
-                    with st.expander("🔍 Mostra tutti i passaggi logici e i dati dell'algoritmo", expanded=False):
-                        st.subheader("Registro analitico delle operazioni:")
-                        for riga_log in log_totali:
-                            st.write(riga_log)
-                            
-                        st.subheader("Matrice vettoriale degli Stati di Ossidazione:")
-                        tabella_vettori = {
-                            "Elemento Chimico": [el for el, _ in elementi_correnti],
-                            "Atomi nella formula": [q for _, q in elementi_correnti],
-                            "Stato di Ossidazione Calcolato": [ox_calcolati[el] for el, _ in elementi_correnti]
-                        }
-                        st.dataframe(pd.DataFrame(tabella_vettori), hide_index=True, use_container_width=True)
-                        st.info(f"💡 **Inquadramento Didattico:** La molecola analizzata fa parte della famiglia degli **{tipo_composto.replace('_', ' ').capitalize()}**. L'algoritmo ha verificato che la sommatoria del prodotto tra gli indici molecolari e gli stati di ossidazione sia pari a 0.")
-                else:
-                    st.error("⚠️ Impossibile bilanciare matematicamente le cariche elettroniche della molecola inserita con gli stati memorizzati.")
-            else:
-                st.error("⚠️ Classe funzionale della molecola non supportata dai nostri alberi logici strutturali.")
+    # PASSO 1: VALIDAZIONE
+    valida, msg = valida_formula(formula_utente)
+    with st.expander("🔹 Fase 1: Validazione Sintattica della Stringa", expanded=True):
+        st.write(f"Formula analizzata: `{formula_utente}`")
+        if valida:
+            st.success("✅ Formula sintatticamente corretta (caratteri idonei e parentesi bilanciate).")
         else:
-            st.error("⚠️ Errore di sintassi chimica. Verifica i simboli (Attenzione alle maiuscole: es. Cu2S e non cu2s).")
+            st.error(f"❌ Errore sintattico: {msg}")
+            st.stop()
+            
+    # PASSO 2: PARSING
+    elementi = parse_formula(formula_utente)
+    with st.expander("🔹 Fase 2: Parsing ed Estrazione Quantitativa degli Atomi", expanded=True):
+        st.write("Scomposizione degli elementi chimici isolati dal parser ricorsivo:")
+        df_elem = pd.DataFrame([{"Elemento": k, "Atomi Presenti": v} for k, v in elementi.items()])
+        st.dataframe(df_elem, use_container_width=True, hide_index=True)
+        
+    # PASSO 3: CLASSIFICAZIONE CHIMICA
+    tipo, log_classe = classifica_composto(elementi)
+    with st.expander("🔹 Fase 3: Classificazione Logico-Chimica", expanded=True):
+        for riga in log_classe:
+            st.write(riga)
+        if tipo:
+            st.info(f"🎯 Sottoclasse chimica identificata con successo: **{tipo.replace('_', ' ').upper()}**")
+        else:
+            st.error("❌ Impossibile determinare la classe: composto non supportato o formula chimicamente inesistente.")
+            st.stop()
+            
+    # PASSO 4: CALCOLO STATI OSSIDAZIONE
+    log_ox = []
+    ossidazione = calcola_ossidazione(elementi, tipo, log_ox)
+    ox_ok, ox_err = valida_ossidazione_risultato(ossidazione, elementi, tipo)
+    with st.expander("🔹 Fase 4: Bilanciamento degli Stati di Ossidazione (n.ox.)", expanded=True):
+        for riga in log_ox:
+            st.write(riga)
+        if ox_ok:
+            df_ox = pd.DataFrame([{"Elemento": k, "Numero di Ossidazione": f"+{v}" if v > 0 else str(v)} for k, v in ossidazione.items()])
+            st.dataframe(df_ox, use_container_width=True, hide_index=True)
+        else:
+            st.error(f"❌ Errore Chimico: {ox_err}")
+            st.stop()
+            
+    # PASSO 5: APPLICAZIONE REGOLE NOMENCLATURA
+    log_nome = []
+    nome_iupac, nome_trad = genera_nomenclatura(elementi, ossidazione, tipo, log_nome)
+    with st.expander("🔹 Fase 5: Elaborazione Linguistica dei Nomi", expanded=True):
+        for riga in log_nome:
+            st.write(riga)
+        st.success("✅ Nomi ricavati applicando le convenzioni IUPAC 1990 e la nomenclatura storica Tradizionale.")
 
-# =============================================================================
-# RIPRISTINO COMPLETO DEL TUO COMODO BLOCCO DI CURIOSITÀ CHIMICA
-# =============================================================================
-if formula_utente:
-    formula_pulita = formula_utente.strip().replace(" ", "")
-    elementi_correnti = parse_formula(formula_pulita, [])
-    if elementi_correnti:
-        tipo = classifica_composto(elementi_correnti, formula_pulita, [])
-        
-        CURIOSITA = {
-            'ossido_basico': ("💡 Lo sapevi?", "Gli **ossidi basici** si formano per reazione diretta tra un metallo e l'ossigeno. Molti di essi, a contatto con l'acqua, reagiscono vigorosamente per formare le rispettive basi o idrossidi (es. CaO + H2O ➔ Ca(OH)2, nota come calce spenta)."),
-            'anidride': ("💡 Lo sapevi?", "Le **anidridi** (o ossidi acidi) prendono il nome dal fatto che, combinandosi con l'acqua, generano i rispettivi ossiacidi. Ad esempio, l'anidride carbonica (CO2) reagisce con l'acqua piovana formando acido carbonico, responsabile della naturale, seppur debole, acidità delle piogge."),
-            'idracido': ("💡 Lo sapevi?", "Gli **idracidi** sono composti binari in cui l'idrogeno è legato a un non-metallo altamente elettronegativo. A differenza degli ossiacidi, non contengono ossigeno. Il più famoso è l'acido cloridrico (HCl), che è il componente principale dei nostri succhi gastrici."),
-            'ossiacido': ("💡 Lo sapevi?", "Gli **ossiacidi** contengono ossigeno e sono generalmente più forti degli idracidi. L'acido solforico (H2SO4) è il prodotto chimico industriale più prodotto al mondo: oltre 250 milioni di tonnellate all'anno, usato in fertilizzanti, batterie e raffinazione."),
-            'sale_binario': ("💡 Lo sapevi?", "I **sali binari** sono composti ionici formati da un reticolo geometrico ordinato di cationi e anioni. Il cloruro di sodio (NaCl, il comune sale da cucina) ne è l'esempio più celebre: la sua struttura cubica a facce centrate è uno dei modelli cristallini più studiati nella chimica dello stato solido."),
-            'acqua': ("💡 Lo sapevi?", "L'**acqua (H2O)** ha proprietà così uniche e anomale da essere quasi classificata come un caso a parte. L'angolo di legame di 104.5° e il forte dipolo molecolare spiegano l'elevata tensione superficiale, il calore specifico altissimo e la densità anomala del ghiaccio, caratteristiche che rendono possibile la vita sulla Terra.")
-        }
-        
-        if tipo in CURIOSITA:
-            titolo, testo = CURIOSITA[tipo]
-            st.markdown("---")
-            with st.expander(titolo, expanded=True):
-                st.write(testo)
+    # 🏆 SEZIONE ASSEGNAZIONE NOMI (CARTELLINI GRAFICI)
+    st.markdown("### 🏆 Risultato della Nomenclatura")
+    st.markdown(f"""
+    <div class="results-grid">
+        <div class="result-card card-iupac">
+            <div class="rc-label">Nomenclatura IUPAC</div>
+            <div class="rc-name">{nome_iupac}</div>
+        </div>
+        <div class="result-card card-trad">
+            <div class="rc-label">Nomenclatura Tradizionale</div>
+            <div class="rc-name">{nome_trad}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Curiosità scientifica
+    CURIOSITA = {
+        'ossido_basico': ("💡 Lo sapevi?", "Gli ossidi basici si formano per reazione diretta tra metalli e ossigeno. Un esempio comune è la ruggine (Fe₂O₃)."),
+        'anidride': ("💡 Lo sapevi?", "Le anidridi sono dette anche ossidi acidi perché reagendo con acqua generano gli ossiacidi. La CO₂ disciolta in acqua piovana crea l'acido carbonico naturale."),
+        'idrossido': ("💡 Lo sapevi?", "Gli idrossidi sono composti basici o alcalini, caratterizzati dallo ione idrossido OH⁻. La soda caustica (NaOH) è l'idrossido più diffuso industrialmente."),
+        'idracido': ("💡 Lo sapevi?", "Gli idracidi contengono idrogeno e un non-metallo, senza alcun atomo di ossigeno. L'acido cloridrico (HCl) è il principale componente dei succhi gastrici dello stomaco."),
+        'ossiacido': ("💡 Lo sapevi?", "Gli ossiacidi contengono ossigeno e sono composti generalmente forti. H₂SO₄ (acido solforico) è il composto chimico più fabbricato al mondo."),
+        'sale_binario': ("💡 Lo sapevi?", "I sali binari sono solidi cristallini ionici. NaCl (il comune sale da cucina) assume una geometria cristallina cubica a facce centrate."),
+        'acqua': ("💡 Lo sapevi?", "L'acqua (H₂O) ha proprietà fisiche così anomale a causa dei legami a idrogeno (es. dilatazione termica inversa vicino allo zero) da essere considerata una specie chimica a parte."),
+    }
+    if tipo in CURIOSITA:
+        tit, txt = CURIOSITA[tipo]
+        st.markdown(f"***{tit}*** *{txt}*")
